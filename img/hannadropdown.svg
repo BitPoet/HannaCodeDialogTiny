@@ -1,0 +1,12 @@
+<svg width="600" height="600" xmlns="http://www.w3.org/2000/svg">
+
+ <g>
+  <title>Layer 1</title>
+  <text xml:space="preserve" text-anchor="start" font-family="Noto Sans JP" font-size="250" id="svg_2" y="410" x="46" stroke-width="0" stroke="#fff" fill="#000000">[[   ]]</text>
+  <rect id="svg_3" height="142" width="170" y="276.73334" x="225" stroke="#fff" fill="#000"/>
+  <line stroke-linecap="undefined" stroke-linejoin="undefined" id="svg_4" y2="307.73334" x2="372" y1="308.73334" x1="249" stroke="#fff" fill="none"/>
+  <line stroke-linecap="undefined" stroke-linejoin="undefined" id="svg_5" y2="336.73334" x2="373" y1="336.73334" x1="250" stroke="#fff" fill="none"/>
+  <line stroke-linecap="undefined" stroke-linejoin="undefined" id="svg_6" y2="362.73334" x2="370" y1="363.73334" x1="248" stroke="#fff" fill="none"/>
+  <line stroke-linecap="undefined" stroke-linejoin="undefined" id="svg_7" y2="385.73334" x2="332" y1="385.73334" x1="275" stroke="#fff" fill="none"/>
+ </g>
+</svg>

@@ -1,0 +1,86 @@
+/**
+ * hannadropdown plugin for TinyMCE
+ *
+ * @param editor
+ *
+ */
+
+const hdtDialog = function(editor, htag, attrs) {
+	var inputs = [];
+	var initial = {};
+
+	for(const [key, value] of Object.entries(attrs)) {
+		inputs.push({
+			type:		'input',
+			name:		key,
+			label:		key.charAt(0).toUpperCase() + key.slice(1)
+		});
+		initial[key] = value;
+	}
+
+	editor.windowManager.open({
+	  title: hcdt_config.dropdown_title, // The dialog's title - displayed in the dialog header
+	  body: {
+	    type: 'panel', // The root body type - a Panel or TabPanel
+	    items: inputs
+	  },
+	  initialData: initial,
+	  buttons: [ // A list of footer buttons
+	    {
+	      type: 'submit',
+	      name: 'submitButton',
+	      text: 'OK'
+	    }, {
+	    	type: 'cancel',
+	    	text: 'Cancel',
+	    	name: 'closeButton'
+	    }
+	  ],
+	  onSubmit: (api) => {
+	  	const data = api.getData();
+	  	var str = hcdt_config.open_tag + htag;
+	  	for(const k of Object.keys(attrs)) {
+	  		str += " " + k + '="' + data[k] + '"';
+	  	}
+	  	str += hcdt_config.close_tag;
+	  	editor.insertContent(str);
+	  	api.close();
+	  }
+	});	
+}
+
+tinymce.PluginManager.add('hannadropdown', (editor, url) => {
+	editor.ui.registry.addIcon('hcdtdd', '<img style="width:24px; height: 24px;" src="' + hcdt_config.dropdown_icon + '" />');
+	
+	// Adds a menu item, which can then be included in any menu via the menu/menubar configuration 
+	editor.ui.registry.addMenuButton('hannadropdown', {
+		text: hcdt_config.dropdown_title,
+		type: 'menubutton',
+		icon: 'hcdtdd',
+		fetch: (callback) => {
+			var $ = jQuery;
+			var htags = hcdt_config.hanna_tags;
+			var items = [];
+			for(const [key, value] of Object.entries(htags)) {
+				items.push({
+					type:		'menuitem',
+					text:		key,
+					onAction: () => {
+						if(!value || Object.keys(value).length === 0) {
+							editor.insertContent(hcdt_config.open_tag + key + hcdt_config.close_tag);
+						} else {
+							hdtDialog(editor, key, value)
+						}
+					}
+				});
+			}
+			callback(items);
+		}
+	});
+
+	// Return metadata for the plugin 
+	return {
+		getMetadata: () => ({ name: 'Hanna Dropdown' })
+	};
+
+});
