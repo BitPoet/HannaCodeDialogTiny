@@ -1,6 +1,6 @@
 # HannaCodeDialogTiny
 
-A module for ProcessWire CMS/CMF. Provides a number of enhancements for working with Hanna Code tags in TinyMCE. The main enhancement is that Hanna tags in a TinyMCE field may be double-clicked to edit their attributes using core ProcessWire inputfields in a modal dialog.
+A module for ProcessWire CMS/CMF. Provides a number of enhancements for working with Hanna Code tags in TinyMCE. The main enhancement is that Hanna tags in a TinyMCE field may be double-clicked to edit their attributes in a modal dialog.
 
 Requires the Hanna Code module, InputfieldTinyMCE and ProcessWire >= v3.0.218.
 
