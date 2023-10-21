@@ -14,7 +14,7 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
 	public static function getModuleInfo() {
 		return array(
 			'title' => 'Hanna Code Dialog TinyMCE',
-			'version' => '0.1.0',
+			'version' => '0.1.1',
 			'summary' => 'Enhances the use of Hanna tags in TinyMCE fields, including the dialog-based editing of Hanna tags.',
 			'author' => 'BitPoet',
 			'icon' => 'clone',
