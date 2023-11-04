@@ -14,7 +14,7 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
 	public static function getModuleInfo() {
 		return array(
 			'title' => 'Hanna Code Dialog TinyMCE',
-			'version' => '0.1.1',
+			'version' => '0.1.2',
 			'summary' => 'Enhances the use of Hanna tags in TinyMCE fields, including the dialog-based editing of Hanna tags.',
 			'author' => 'BitPoet',
 			'icon' => 'clone',
@@ -136,10 +136,10 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
 					$exclude_prefix = $this->exclude_prefix ?: '_';
 					if((is_array($this->exclude_selection) && in_array($name, $this->exclude_selection)) || strpos($name, $exclude_prefix) === 0) continue;
 				}
-				$attrs = [];
-				foreach($hanna->extractDefaultCodeAttrs($code) as $attr_name => $attr_value) {
-					$attrs[$attr_name] = $attr_value;
-				}
+				if(version_compare($hanna->getModuleInfo()['version'], 20, '<='))
+					$attrs = $hanna->extractDefaultCodeAttrs($code);
+				else
+					$attrs = $hanna->hannaCodes()->get($name)->attrs();
 				$tags[$name] = $attrs;
 			}
 		}
