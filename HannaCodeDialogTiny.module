@@ -93,10 +93,12 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
 		
 		$config->js($this->className, $settings);
 
+		/*
 		// Add CSS
 		$info = $this->getModuleInfo();
 		$version = $info['version'];
 		$config->styles->add($config->urls->{$this} . "{$this}.css?v={$version}");
+		*/
 		
 		$event->return = "<script>var hcdt_config = config.HannaCodeDialogTiny;</script>" . $event->return;
 	}
