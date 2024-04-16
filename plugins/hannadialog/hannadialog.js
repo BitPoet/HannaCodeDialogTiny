@@ -101,7 +101,8 @@ tinymce.PluginManager.add('hannadialog', (editor, url) => {
 		// We make our Hanna Codes noneditable and highlight them.
 		var content = "" + e.content;
 		for(const tagName of tagNames) {
-			const rePattern = "(" + escapeReChars(openTag) + tagName + ".*?" + escapeReChars(closeTag) + ")";
+			const reExcludeWrapLB = "(?<!<span[^>]+class=[\"']noneditable hannadialog[^>]+>\s*)";
+			const rePattern = reExcludeWrapLB + "(" + escapeReChars(openTag) + tagName + ".*?" + escapeReChars(closeTag) + ")";
 			const re = new RegExp(rePattern, "smg");
 			content = content.replace(re, '<span class="noneditable hannadialog" title="' + hcdt_config.hover_title + '">$1</span>');
 		}
