@@ -1,54 +1,40 @@
 <?php namespace ProcessWire;
 
-
 /**
- * UI plugin that adds dialogs for Hanna Codes in InputfieldTinyMCE.
- * This is a shameless adaption of Robin Sallis' famous HannaCodeDialog
- * module for InputfieldCKEditor.
+ * Hanna Code Dialog TinyMCE
+ * Main integration module.
+ * Handles TinyMCE Hooks and connects to ProcessHannaCodeDialog.
  */
-class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule {
-
+class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
+{
     /** @var string Cached module version */
     private $moduleVersion;
 
     /** @var string Cached module URL */
     private $moduleUrl;
 
-    /**
-     * Module information
-     */
     public static function getModuleInfo() {
-        return array(
-            'title' => 'Hanna Code Dialog TinyMCE',
-            'version' => '0.8.2',
-            'summary' => 'Enhances the use of Hanna tags in TinyMCE fields, including the dialog-based editing of Hanna tags.',
-            'author' => 'BitPoet, phlppschrr',
-            'icon' => 'clone',
+        return [
+            'title'    => 'Hanna Code Dialog TinyMCE',
+            'version'  => '0.8.2', // Cleaned
+            'summary'  => 'Enhances the use of Hanna tags in TinyMCE fields with dialog-based editing via iframe.',
+            'author'   => 'Robin Sallis, BitPoet, interrobang',
+            'icon'     => 'clone',
             'autoload' => 'template=admin',
             'singular' => true,
             'requires' => 'ProcessWire>=3.0.218, InputfieldTinyMCE, TextformatterHannaCode, PHP>=7.0',
             'installs' => 'ProcessHannaCodeDialog',
-        );
+        ];
     }
 
-    /**
-     * Array of Hanna tags that have no attributes
-     */
-    protected $tags_no_attributes = [];
-
-    /**
-     * Ready
-     */
     public function ready() {
         $this->moduleVersion = $this->getModuleInfo()['version'];
         $this->moduleUrl = $this->wire()->config->urls->{$this};
-        $this->addHookAfter("ProcessPageEdit::execute", $this, "addPlugins");
-        $this->addHookAfter("InputfieldTinyMCE::render", $this, "configureTinyMCE");
+        $this->addHookAfter('ProcessPageEdit::execute', $this, 'addPlugins');
+        $this->addHookAfter('InputfieldTinyMCE::render', $this, 'configureTinyMCE');
+        $this->addHookBefore('InputfieldForm::render', $this, 'addCheatSheet');
     }
-    
-    /**
-     * Configure TinyMCE settings and add custom CSS
-     */
+
     public function configureTinyMCE(HookEvent $event) {
         $inputfield = $event->object;
         $out = $event->return;
@@ -78,19 +64,14 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
         $event->return = $script.$out;
     }
 
-
-    /**
-     * Add plugin to TinyMCE in ProcessPageEdit
-     */
     public function addPlugins(HookEvent $event) {
-        
         $config = $this->wire()->config;
         if ($config->ajax || $this->input->get('InputfieldFileAjax')) {
             return;
         }
 
         $pg = $event->object->getPage();
-        if (!$this->hasTinyMCE($pg->template->fields, $pg)) {
+        if ( ! $this->hasTinyMCE($pg->template->fields, $pg)) {
             return;
         }
 
@@ -112,28 +93,18 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
             'page_id'        => $editedPage->id,
             'css_url'        => $this->moduleUrl . 'HannaCodeDialogTiny.css?v=' . $this->moduleVersion,
         ];
-        
+
         $config->js($this->className, $settings);
         $config->styles->add($this->moduleUrl . "{$this}.css?v=" . $this->moduleVersion);
-        
-        $event->return = '<script>var hcdt_config = config.HannaCodeDialogTinyMCE;</script>' . $event->return;
+
+        $event->return = '<script>var hcdt_config = config.HannaCodeDialogTiny;</script>' . $event->return;
     }
 
-
-
-
-    /**
-     * Get Hanna Code tags for toolbar dropdown
-     *
-     * @param Page $page The page being edited
-     * @return array Array of tag names
-     *
-     */
     public function ___getDropdownTags($contextPage = null) {
         $tags = [];
         $hanna = $this->wire()->modules->get('TextformatterHannaCode');
 
-        if (!$hanna) {
+        if ( ! $hanna) {
             return $tags;
         }
 
@@ -149,9 +120,9 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
 
             $attrs = $hc->attrs;
             // Check if attrs is not empty (string or array)
-            $hasAttrs = !empty($attrs);
+            $hasAttrs = ! empty($attrs);
             // Fallback for older method: defining attributes inside code with hc_attr
-            if (!$hasAttrs && strpos($hc->code, 'hc_attr') !== false) {
+            if ( ! $hasAttrs && strpos($hc->code, 'hc_attr') !== false) {
                 $hasAttrs = true;
             }
             $tags[$name] = ['has_attrs' => $hasAttrs];
@@ -160,11 +131,8 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
         return $tags;
     }
 
-    /**
-     * Config inputfields
-     *
-     * @param InputfieldWrapper $inputfields
-     */
+
+
     public function getModuleConfigInputfields(InputfieldWrapper $inputfields) {
         $modules = $this->wire()->modules;
 
@@ -191,40 +159,70 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
         $inputfields->add($f);
     }
 
-
-    /**
-     * Config inputfields
-     *
-     * @param InputfieldWrapper $inputfields
-     */
-    public function getModuleConfigInputfields(InputfieldWrapper $inputfields) {
-        $modules = $this->wire()->modules;
-
-        /* @var InputfieldText $f */
-        $f = $modules->InputfieldText;
-        $f_name = 'exclude_prefix';
-        $f->name = $f_name;
-        $f->label = $this->_('Exclude prefix');
-        $f->description = $this->_('Tags that have this prefix will not appear in the toolbar dropdown.');
-        $f->columnWidth = 50;
-        $f->value = $this->$f_name ?: '_';
-        $inputfields->add($f);
-
-        /* @var InputfieldAsmSelect $f */
-        $f = $modules->InputfieldAsmSelect;
-        $f_name = 'exclude_selection';
-        $f->name = $f_name;
-        $f->label = $this->_('Exclude Hanna tags');
-        $f->description = $this->_('Tags that are selected here will not appear in the toolbar dropdown.');
-        $f->columnWidth = 50;
-        foreach($this->getHannaTags(true) as $select_option) {
-            $f->addOption($select_option);
+    public function addCheatSheet(HookEvent $event) {
+        /* @var InputfieldForm $form */
+        $form = $event->object;
+        if ($form->id !== 'HannaCodeEdit') {
+            return;
         }
-        $f->value = $this->$f_name;
-        $inputfields->add($f);
+        $hcAttr = $form->getChildByName('hc_attr');
+        if ( ! $hcAttr) {
+            return;
+        }
+
+        $f = $this->wire()->modules->get('InputfieldMarkup');
+        $f->name = 'hcd_info';
+        $f->label = $this->_('Attributes cheatsheet for HannaCodeDialog');
+        $f->value = <<<EOT
+<style>
+.hcd-cheatsheet .mono { font-family:monospace; font-size:14px; background:#f0f0f0; display:inline-block; padding:1px 5px; border-radius:3px; color:#d00; }
+.hcd-cheatsheet .mono-block { padding:5px 10px; margin:0 0 10px; display:block; background:#f9f9f9; border-left: 3px solid #ccc; }
+</style>
+<div class='hcd-cheatsheet'>
+    <p>Use a double underscore to define <span class='mono'>type</span>, <span class='mono'>options</span>, <span class='mono'>description</span> or <span class='mono'>notes</span> for an attribute.</p>
+    <p><strong>Example: attribute named 'vegetables'...</strong></p>
+    
+    <h3>1. Inputfield Types</h3>
+    <p class='mono mono-block'>vegetables__type=asmselect</p>
+    <p><strong>Supported types:</strong></p>
+    <ul>
+        <li><span class='mono'>text</span> (Default)</li>
+        <li><span class='mono'>textarea</span> (Linebreaks get removed)</li>
+        <li><span class='mono'>integer</span> (HTML5 Number)</li>
+        <li><span class='mono'>checkbox</span> (Single toggle)</li>
+        <li><span class='mono'>radios</span></li>
+        <li><span class='mono'>select</span> (Dropdown)</li>
+        <li><span class='mono'>selectmultiple</span></li>
+        <li><span class='mono'>checkboxes</span> (Multiple)</li>
+        <li><span class='mono'>asmselect</span> (Sortable Multiple)</li>
+        <li><span class='mono'>pagelistselect</span></li>
+        <li><span class='mono'>pagelistselectmultiple</span></li>
+    </ul>
+
+    <h3>2. Options (for Selects, Radios, etc)</h3>
+    
+    <p><strong>A) Simple List:</strong></p>
+    <p class='mono mono-block'>vegetables__options=Spinach|Pumpkin|Celery</p>
+    
+    <p><strong>B) Key/Value pairs:</strong><br>
+    Use a colon <code>:</code> to separate saved value from displayed label.</p>
+    <p class='mono mono-block'>vegetables__options=spinach:Fresh Spinach|pumpkin:Tasty Pumpkin</p>
+
+    <p><strong>C) Dynamic Options (via Hanna Code):</strong><br>
+    You can use another Hanna tag to generate the options string.</p>
+    <p class='mono mono-block'>vegetables__options=[[_generate_vegetable_options]]</p>
+
+    <h3>3. Description & Notes</h3>
+    <p class='mono mono-block'>
+        vegetables__description=Select ingredients for your soup.<br>
+        vegetables__notes=Pumpkin tastes best in autumn.
+    </p>
+</div>
+EOT;
+        $f->icon = 'question-circle';
+        $f->collapsed = Inputfield::collapsedYes;
+        $form->insertAfter($f, $hcAttr);
     }
-
-
 
     public function ___install() {
         $mod = $this->modules->get('InputfieldTinyMCE');
@@ -232,7 +230,7 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
         $mod->addPlugin($url.'plugins/hannadialog/hannadialog.js');
         $mod->addPlugin($url.'plugins/hannadropdown/hannadropdown.js');
     }
-    
+
     public function ___uninstall() {
         $mod = $this->modules->get('InputfieldTinyMCE');
         $url = $this->wire()->config->urls->{$this->className};
@@ -240,46 +238,55 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
         $mod->removePlugin($url.'plugins/hannadialog/hannadialog.js');
     }
 
-
     /**
      * Recursively check if any of the fields use TinyMCE
      *
-     * @param iterable $fields
-     * @param Page $page
-     * @param array $visited Field IDs to prevent infinite recursion
+     * @param  iterable  $fields
+     * @param  Page  $page
+     * @param  array  $visited  Field IDs to prevent infinite recursion
+     *
      * @return bool
      */
     protected function hasTinyMCE($fields, $page, &$visited = []) {
-        foreach($fields as $field) {
-            if(!$field) continue;
+        foreach ($fields as $field) {
+            if ( ! $field) {
+                continue;
+            }
 
             // Prevent infinite recursion
-            if(isset($visited[$field->id])) continue;
+            if (isset($visited[$field->id])) {
+                continue;
+            }
             $visited[$field->id] = true;
 
             // Check for TinyMCE in textarea fields
-            if($field->type instanceof FieldtypeTextarea) {
-                if($field->type->getInputfield($page, $field) instanceof InputfieldTinyMCE) {
+            if ($field->type instanceof FieldtypeTextarea) {
+                if ($field->type->getInputfield($page, $field) instanceof InputfieldTinyMCE) {
                     return true;
                 }
                 continue;
             }
 
             // Check for TinyMCE in repeater fields
-            if($field->type instanceof FieldtypeRepeater) {
-                if(!$field->repeaterFields || !is_array($field->repeaterFields)) continue;
-
-                $subFields = [];
-                foreach($field->repeaterFields as $fieldId) {
-                    $subField = $this->wire()->fields->get($fieldId);
-                    if($subField) $subFields[] = $subField;
+            if ($field->type instanceof FieldtypeRepeater) {
+                if ( ! $field->repeaterFields || ! is_array($field->repeaterFields)) {
+                    continue;
                 }
 
-                if($this->hasTinyMCE($subFields, $page, $visited)) return true;
+                $subFields = [];
+                foreach ($field->repeaterFields as $fieldId) {
+                    $subField = $this->wire()->fields->get($fieldId);
+                    if ($subField) {
+                        $subFields[] = $subField;
+                    }
+                }
+
+                if ($this->hasTinyMCE($subFields, $page, $visited)) {
+                    return true;
+                }
             }
         }
 
         return false;
     }
-
 }
