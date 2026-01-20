@@ -1,0 +1,73 @@
+/* Container for the Widget */
+span.hannadialog {
+    display: inline-flex;
+    align-items: center;
+    background-color: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin: 0 2px;
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 0.9em;
+    cursor: default;
+    user-select: none;
+
+    /* Ensure default Drag behavior */
+    -webkit-user-drag: element;
+    user-drag: element;
+
+    white-space: nowrap;
+    vertical-align: middle;
+    max-width: none;
+}
+
+span.hannadialog:hover {
+    border-color: #64748b;
+    background-color: #e2e8f0;
+    cursor: pointer;
+}
+
+span.hannadialog[data-mce-selected="1"] {
+    outline: none;
+    box-shadow: 0 0 0 2px #0f172a;
+    border-color: transparent;
+}
+
+/* Styling for Name and Attributes */
+span.hannadialog .h-name {
+    font-weight: 700;
+    font-style: normal;
+    color: #0f172a;
+    background-color: #e2e8f0;
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-right: 4px;
+}
+
+span.hannadialog .h-attrs {
+    font-style: normal;
+    font-weight: 400;
+    color: #475569;
+    font-size: 0.95em;
+    overflow: visible;
+    text-overflow: clip;
+    max-width: none;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+span.hannadialog .h-attrs:empty {
+    display: none;
+    margin: 0;
+}
+
+/* Offscreen Selection Fix */
+.mce-offscreen-selection {
+    opacity: 0 !important;
+}
+.mce-offscreen-selection .hannadialog {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: transparent !important;
+}
