@@ -14,13 +14,14 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
     public static function getModuleInfo() {
         return array(
             'title' => 'Hanna Code Dialog TinyMCE',
-            'version' => '0.1.2',
+            'version' => '0.8.2',
             'summary' => 'Enhances the use of Hanna tags in TinyMCE fields, including the dialog-based editing of Hanna tags.',
-            'author' => 'BitPoet',
+            'author' => 'BitPoet, phlppschrr',
             'icon' => 'clone',
             'autoload' => 'template=admin',
             'singular' => true,
             'requires' => 'ProcessWire>=3.0.218, InputfieldTinyMCE, TextformatterHannaCode, PHP>=7.0',
+            'installs' => 'ProcessHannaCodeDialog',
         );
     }
 
@@ -61,14 +62,8 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
         if($this->input->get('InputfieldFileAjax')) return;
         
         $pg = $event->object->getPage();
-        $hasTMCE = false;
-        foreach($pg->template->fields as $f) {
-            if($f->type instanceof FieldtypeTextarea && $f->type->getInputfield($pg, $f) instanceof InputfieldTinyMCE) {
-                $hasTMCE = true;
-                break;
-            }
-        }
-        if(! $hasTMCE) return;
+        
+        if(!$this->hasTinyMCE($pg->template->fields, $pg)) return;
         
         // Get edited page
         if($event->wire()->process instanceof ProcessProfile) {
@@ -276,5 +271,46 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
         $mod->removePlugin('/site/modules/' . $this->className() . '/plugins/hannadialog/hannadialog.js');
     }
 
+
+    /**
+     * Recursively check if any of the fields use TinyMCE
+     *
+     * @param iterable $fields
+     * @param Page $page
+     * @param array $visited Field IDs to prevent infinite recursion
+     * @return bool
+     */
+    protected function hasTinyMCE($fields, $page, &$visited = []) {
+        foreach($fields as $field) {
+            if(!$field) continue;
+
+            // Prevent infinite recursion
+            if(isset($visited[$field->id])) continue;
+            $visited[$field->id] = true;
+
+            // Check for TinyMCE in textarea fields
+            if($field->type instanceof FieldtypeTextarea) {
+                if($field->type->getInputfield($page, $field) instanceof InputfieldTinyMCE) {
+                    return true;
+                }
+                continue;
+            }
+
+            // Check for TinyMCE in repeater fields
+            if($field->type instanceof FieldtypeRepeater) {
+                if(!$field->repeaterFields || !is_array($field->repeaterFields)) continue;
+
+                $subFields = [];
+                foreach($field->repeaterFields as $fieldId) {
+                    $subField = $this->wire()->fields->get($fieldId);
+                    if($subField) $subFields[] = $subField;
+                }
+
+                if($this->hasTinyMCE($subFields, $page, $visited)) return true;
+            }
+        }
+
+        return false;
+    }
 
 }
