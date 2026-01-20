@@ -8,6 +8,12 @@
  */
 class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule {
 
+    /** @var string Cached module version */
+    private $moduleVersion;
+
+    /** @var string Cached module URL */
+    private $moduleUrl;
+
     /**
      * Module information
      */
@@ -34,18 +40,42 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
      * Ready
      */
     public function ready() {
+        $this->moduleVersion = $this->getModuleInfo()['version'];
+        $this->moduleUrl = $this->wire()->config->urls->{$this};
         $this->addHookAfter("ProcessPageEdit::execute", $this, "addPlugins");
-        $this->addHookAfter("InputfieldTinyMCE::render", $this, "setNonEditClass");
+        $this->addHookAfter("InputfieldTinyMCE::render", $this, "configureTinyMCE");
     }
     
     /**
-     * Set noneditable_class setting
+     * Configure TinyMCE settings and add custom CSS
      */
-    public function setNonEditClass(HookEvent $event) {
-        $out = $event->return;
+    public function configureTinyMCE(HookEvent $event) {
         $inputfield = $event->object;
-        $script = "<script>ProcessWire.config.InputfieldTinyMCE.settings." . $inputfield->attr('name') . ".noneditable_class = 'noneditable';</script>";
-        $event->return = $script . $out;
+        $out = $event->return;
+        $cssUrl = $this->moduleUrl . 'HannaCodeDialogTiny.css?v=' . $this->moduleVersion;
+
+        $script = "
+        <script>
+            setTimeout(function() {
+                var fieldName = '".$inputfield->attr('name')."';
+                if(typeof ProcessWire.config.InputfieldTinyMCE !== 'undefined' && typeof ProcessWire.config.InputfieldTinyMCE.settings !== 'undefined') {
+                    var settings = ProcessWire.config.InputfieldTinyMCE.settings[fieldName];
+                    if (settings) {
+                        settings.noneditable_class = 'noneditable';
+                        
+                        if(settings.content_css) {
+                            settings.content_css = settings.content_css + ',' + '$cssUrl';
+                        } else {
+                            settings.content_css = '$cssUrl';
+                        }
+                        
+                        if(!settings.extended_valid_elements) settings.extended_valid_elements = '';
+                        settings.extended_valid_elements += ',span[class|contenteditable|data-hcd-code|title]';
+                    }
+                }
+            }, 0);
+        </script>";
+        $event->return = $script.$out;
     }
 
 
@@ -55,45 +85,38 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
     public function addPlugins(HookEvent $event) {
         
         $config = $this->wire()->config;
-
-        // Return if loaded via AJAX (image field)
-        if($config->ajax) return;
-
-        if($this->input->get('InputfieldFileAjax')) return;
-        
-        $pg = $event->object->getPage();
-        
-        if(!$this->hasTinyMCE($pg->template->fields, $pg)) return;
-        
-        // Get edited page
-        if($event->wire()->process instanceof ProcessProfile) {
-            $edited_page = $event->wire()->user;
-        } else {
-            $edited_page = $event->object->getPage();
+        if ($config->ajax || $this->input->get('InputfieldFileAjax')) {
+            return;
         }
 
-        // To config JS
-        $settings = [];
-        $data = $this->wire()->modules->getModuleConfigData('TextformatterHannaCode');
-        $settings['iframe_path'] = "{$this->wire()->input->url}?id={$edited_page->id}&modal=1";
-        $settings['open_tag'] = !empty($data['openTag']) ? $data['openTag'] : \TextformatterHannaCode::DEFAULT_OPEN_TAG;
-        $settings['close_tag'] = !empty($data['closeTag']) ? $data['closeTag'] : \TextformatterHannaCode::DEFAULT_CLOSE_TAG;
-        $settings['hanna_tags'] = $this->getDropdownTags($edited_page);
-        $settings['tags_no_attributes'] = $this->tags_no_attributes;
-        $settings['widget_colour'] = $this->widget_colour ?: '#d3eaf2';
-        $settings['dropdown_title'] = $this->_('Insert Hanna tag');
-        $settings['dialog_title'] = $this->_('Hanna Code Dialog');
-        $settings['dropdown_icon'] = $config->urls->{$this} . "img/hannadropdown.svg";
-        $settings['hover_title'] = $this->_('Doubleclick to edit');
+        $pg = $event->object->getPage();
+        if (!$this->hasTinyMCE($pg->template->fields, $pg)) {
+            return;
+        }
+
+        $processPage = $this->wire()->pages->get('name=hanna-code-dialog, parent=setup, template=admin');
+        $dialogUrl = $processPage->id ? $processPage->url : $config->urls->admin.'setup/hanna-code-dialog/';
+        $dialogUrl .= (strpos($dialogUrl, '?') === false ? '?' : '&').'modal=1';
+
+        $editedPage = $event->wire()->process instanceof ProcessProfile ? $event->wire()->user : $event->object->getPage();
+
+        $settings = [
+            'open_tag'       => $this->wire()->modules->getConfig('TextformatterHannaCode', 'openTag') ?: '[[',
+            'close_tag'      => $this->wire()->modules->getConfig('TextformatterHannaCode', 'closeTag') ?: ']]',
+            'hanna_tags'     => $this->getDropdownTags($editedPage),
+            'dropdown_title' => $this->_('Insert Hanna tag'),
+            'dialog_title'   => $this->_('Hanna Code Dialog'),
+            'dropdown_icon'  => $this->moduleUrl . 'img/hannadropdown.svg',
+            'hover_title'    => $this->_('Doubleclick to edit'),
+            'dialog_url'     => $dialogUrl,
+            'page_id'        => $editedPage->id,
+            'css_url'        => $this->moduleUrl . 'HannaCodeDialogTiny.css?v=' . $this->moduleVersion,
+        ];
         
         $config->js($this->className, $settings);
-
-        // Add CSS
-        $info = $this->getModuleInfo();
-        $version = $info['version'];
-        $config->styles->add($config->urls->{$this} . "{$this}.css?v={$version}");
+        $config->styles->add($this->moduleUrl . "{$this}.css?v=" . $this->moduleVersion);
         
-        $event->return = "<script>var hcdt_config = config.HannaCodeDialogTiny;</script>" . $event->return;
+        $event->return = '<script>var hcdt_config = config.HannaCodeDialogTinyMCE;</script>' . $event->return;
     }
 
 
@@ -261,14 +284,16 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
 
     public function ___install() {
         $mod = $this->modules->get('InputfieldTinyMCE');
-        $mod->addPlugin('/site/modules/' . $this->className() . '/plugins/hannadialog/hannadialog.js');
-        $mod->addPlugin('/site/modules/' . $this->className() . '/plugins/hannadropdown/hannadropdown.js');
+        $url = $this->wire()->config->urls->{$this->className};
+        $mod->addPlugin($url.'plugins/hannadialog/hannadialog.js');
+        $mod->addPlugin($url.'plugins/hannadropdown/hannadropdown.js');
     }
     
     public function ___uninstall() {
         $mod = $this->modules->get('InputfieldTinyMCE');
-        $mod->removePlugin('/site/modules/' . $this->className() . '/plugins/hannadropdown/hannadropdown.js');
-        $mod->removePlugin('/site/modules/' . $this->className() . '/plugins/hannadialog/hannadialog.js');
+        $url = $this->wire()->config->urls->{$this->className};
+        $mod->removePlugin($url.'plugins/hannadropdown/hannadropdown.js');
+        $mod->removePlugin($url.'plugins/hannadialog/hannadialog.js');
     }
 
 
