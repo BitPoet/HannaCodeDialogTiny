@@ -42,7 +42,7 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
 
         $script = "
         <script>
-            setTimeout(function() {
+            (function() {
                 var fieldName = '".$inputfield->attr('name')."';
                 if(typeof ProcessWire.config.InputfieldTinyMCE !== 'undefined' && typeof ProcessWire.config.InputfieldTinyMCE.settings !== 'undefined') {
                     var settings = ProcessWire.config.InputfieldTinyMCE.settings[fieldName];
@@ -59,19 +59,15 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
                         settings.extended_valid_elements += ',span[class|contenteditable|data-hcd-code|title]';
                     }
                 }
-            }, 0);
+            })();
         </script>";
         $event->return = $script.$out;
     }
 
     public function addPlugins(HookEvent $event) {
         $config = $this->wire()->config;
-        if ($config->ajax || $this->input->get('InputfieldFileAjax')) {
-            return;
-        }
-
         $pg = $event->object->getPage();
-        if ( ! $this->hasTinyMCE($pg->template->fields, $pg)) {
+        if (!$this->hasTinyMCE($pg->template->fields, $pg)) {
             return;
         }
 
@@ -119,12 +115,7 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
             }
 
             $attrs = $hc->attrs;
-            // Check if attrs is not empty (string or array)
-            $hasAttrs = ! empty($attrs);
-            // Fallback for older method: defining attributes inside code with hc_attr
-            if ( ! $hasAttrs && strpos($hc->code, 'hc_attr') !== false) {
-                $hasAttrs = true;
-            }
+            $hasAttrs = !empty($attrs);
             $tags[$name] = ['has_attrs' => $hasAttrs];
         }
 
