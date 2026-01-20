@@ -123,128 +123,72 @@ class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
 
 
     /**
-     * Get Hanna Code tags from database
-     *
-     * @param bool $name_only
-     * @param bool $filter_tags
-     * @return array
-     */
-    public function getHannaTags($name_only = false, $filter_tags = false) {
-        // Instantiate TextformatterHannaCode
-        $hanna = $this->wire()->modules->get('TextformatterHannaCode');
-        // Fetch Hanna Code tags from database
-        $tags = [];
-        $tags_no_attributes = [];
-
-        $sql = "SELECT name, code FROM hanna_code ORDER BY name";
-        $query = $this->wire()->database->prepare($sql);
-        $query->execute();
-        while($row = $query->fetch(\PDO::FETCH_NUM)) {
-            list($name, $code) = $row;
-            // If this tag has no attributes then add it to $tags_no_attributes
-            if(strpos($code, 'hc_attr*' . '/') === false) $tags_no_attributes[] = $name;
-            if($name_only) {
-                if($filter_tags) {
-                    $exclude_prefix = $this->exclude_prefix ?: '_';
-                    if((is_array($this->exclude_selection) && in_array($name, $this->exclude_selection)) || strpos($name, $exclude_prefix) === 0) continue;
-                }
-                $tags[] = $name;
-            } else {
-                if($filter_tags) {
-                    $exclude_prefix = $this->exclude_prefix ?: '_';
-                    if((is_array($this->exclude_selection) && in_array($name, $this->exclude_selection)) || strpos($name, $exclude_prefix) === 0) continue;
-                }
-                if(version_compare($hanna->getModuleInfo()['version'], 20, '<='))
-                    $attrs = $hanna->extractDefaultCodeAttrs($code);
-                else
-                    $attrs = $hanna->hannaCodes()->get($name)->attrs();
-                $tags[$name] = $attrs;
-            }
-        }
-        $this->tags_no_attributes = $tags_no_attributes;
-        return $tags;
-    }
-
-    /**
      * Get Hanna Code tags for toolbar dropdown
      *
      * @param Page $page The page being edited
      * @return array Array of tag names
      *
      */
-    public function ___getDropdownTags($page) {
-        return $this->getHannaTags(false, true);
-    }
+    public function ___getDropdownTags($contextPage = null) {
+        $tags = [];
+        $hanna = $this->wire()->modules->get('TextformatterHannaCode');
 
-    /**
-     * Build dialog form
-     *
-     * @param string $tag_name
-     * @param Page $edited_page
-     * @param array $current_attributes
-     * @param array $default_attributes
-     * @return InputfieldForm $form
-     */
-    public function ___buildForm($tag_name, $edited_page, $current_attributes, $default_attributes) {
-        /* @var InputfieldForm $form */
-        $form = $this->modules->get('InputfieldForm');
-        $form->attr('id+name', 'hanna-form');
-        $form->attr('data-name', $tag_name);
-        return $form;
-    }
-
-    /**
-     * Prepare options for use in dialog inputfield
-     *
-     * @param string $options_string String of options delimited with a pipe character
-     * @param string $attribute_name The name of the attribute the options are for
-     * @param string $tag_name The name of the Hanna tag
-     * @param object $page The page being edited
-     * @return array A regular array of option values, or an associative array $value => $label
-     *
-     */
-    public function ___prepareOptions($options_string, $attribute_name, $tag_name, $page) {
-        $options = explode('|', $options_string);
-        return $options;
-    }
-
-    /**
-     * Find an return an array of all attributes in string $expression
-     * Lifted from TextformatterHannaCode
-     *
-     * @param string $expression
-     * @return array
-     *
-     */
-    protected function getAttributes($expression) {
-        $attrs = [];
-        $regx =
-            '!(?:^|\b)' .            // beginning or boundary
-            '([-_a-z0-9]+)' .        // 1. attribute name
-            '\s*=\s*' .             // Equals
-            '(' .                    // 2. attribute value, possibly with quotes
-            '(["\']|&quot;)' .        // 3. open quote
-            '.*?' .                 // attribute value unquoted
-            '\3' .                    // close quote
-            '|' .                    // OR
-            '[^\'",\s]*' .            // unquoted value...
-            '),?' .                 // optional comma, per PW selector style
-            '!i';
-        if(!preg_match_all($regx, $expression, $matches)) {
-            return $attrs;
+        if (!$hanna) {
+            return $tags;
         }
-        foreach($matches[1] as $key => $name) {
-            $attrs[$name] = trim($matches[2][$key], "'\"");
+
+        foreach ($hanna->hannaCodes()->getAll() as $hc) {
+            $name = $hc->name;
+            $excludePrefix = $this->exclude_prefix ?: '_';
+            if (strpos($name, $excludePrefix) === 0) {
+                continue;
+            }
+            if (is_array($this->exclude_selection) && in_array($name, $this->exclude_selection)) {
+                continue;
+            }
+
+            $attrs = $hc->attrs;
+            // Check if attrs is not empty (string or array)
+            $hasAttrs = !empty($attrs);
+            // Fallback for older method: defining attributes inside code with hc_attr
+            if (!$hasAttrs && strpos($hc->code, 'hc_attr') !== false) {
+                $hasAttrs = true;
+            }
+            $tags[$name] = ['has_attrs' => $hasAttrs];
         }
-        if(empty($attrs['name'])) {
-            // allow for optional [[name_here attrs]] expression
-            // where the 'name' isn't specifically called out as an attribute
-            // but is the first symbol in the expression
-            if(preg_match('!^([-_a-z0-9]+)([\s,]|$)!i', $expression, $matches)) {
-                $attrs['name'] = $matches[1];
+
+        return $tags;
+    }
+
+    /**
+     * Config inputfields
+     *
+     * @param InputfieldWrapper $inputfields
+     */
+    public function getModuleConfigInputfields(InputfieldWrapper $inputfields) {
+        $modules = $this->wire()->modules;
+
+        $f = $modules->InputfieldText;
+        $f->name = 'exclude_prefix';
+        $f->label = $this->_('Exclude prefix');
+        $f->description = $this->_('Tags starting with this prefix will be hidden.');
+        $f->value = $this->exclude_prefix ?: '_';
+        $inputfields->add($f);
+
+        $f = $modules->InputfieldAsmSelect;
+        $f->name = 'exclude_selection';
+        $f->label = $this->_('Exclude Hanna tags');
+        $f->description = $this->_('Select specific tags to hide.');
+
+        $hanna = $modules->get('TextformatterHannaCode');
+        if ($hanna) {
+            foreach ($hanna->hannaCodes()->getAll() as $hc) {
+                $f->addOption($hc->name);
             }
         }
-        return $attrs;
+
+        $f->value = $this->exclude_selection;
+        $inputfields->add($f);
     }
 
 
