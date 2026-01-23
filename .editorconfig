@@ -1,0 +1,26 @@
+# EditorConfig for ProcessWire Module
+# https://editorconfig.org
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# PHP files - ProcessWire uses tabs
+[*.{php,module}]
+indent_style = space
+indent_size = 4
+
+# JavaScript files
+[*.js]
+indent_style = space
+indent_size = 4
+
+# CSS files
+[*.css]
+indent_style = space
+indent_size = 4
+

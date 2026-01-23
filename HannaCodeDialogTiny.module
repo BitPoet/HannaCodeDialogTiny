@@ -1,280 +1,417 @@
 <?php namespace ProcessWire;
 
-
 /**
- * UI plugin that adds dialogs for Hanna Codes in InputfieldTinyMCE.
- * This is a shameless adaption of Robin Sallis' famous HannaCodeDialog
- * module for InputfieldCKEditor.
+ * Hanna Code Dialog TinyMCE
+ * Main integration module.
+ * Handles TinyMCE Hooks and connects to ProcessHannaCodeDialog.
  */
-class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule {
+class HannaCodeDialogTiny extends WireData implements Module, ConfigurableModule
+{
+    /** @var string Cached module version */
+    private $moduleVersion;
 
-	/**
-	 * Module information
-	 */
-	public static function getModuleInfo() {
-		return array(
-			'title' => 'Hanna Code Dialog TinyMCE',
-			'version' => '0.1.2',
-			'summary' => 'Enhances the use of Hanna tags in TinyMCE fields, including the dialog-based editing of Hanna tags.',
-			'author' => 'BitPoet',
-			'icon' => 'clone',
-			'autoload' => 'template=admin',
-			'singular' => true,
-			'requires' => 'ProcessWire>=3.0.218, InputfieldTinyMCE, TextformatterHannaCode, PHP>=7.0',
-		);
-	}
+    /** @var string Cached module URL */
+    private $moduleUrl;
 
-	/**
-	 * Array of Hanna tags that have no attributes
-	 */
-	protected $tags_no_attributes = [];
+    /** @var int Auto-add hannacode to toolbar */
+    public $auto_add_toolbar = 0;
 
-	/**
-	 * Ready
-	 */
-	public function ready() {
-		$this->addHookAfter("ProcessPageEdit::execute", $this, "addPlugins");
-		$this->addHookAfter("InputfieldTinyMCE::render", $this, "setNonEditClass");
-	}
-	
-	/**
-	 * Set noneditable_class setting
-	 */
-	public function setNonEditClass(HookEvent $event) {
-		$out = $event->return;
-		$inputfield = $event->object;
-		$script = "<script>ProcessWire.config.InputfieldTinyMCE.settings." . $inputfield->attr('name') . ".noneditable_class = 'noneditable';</script>";
-		$event->return = $script . $out;
-	}
+    /** @var string Prefix for tags to exclude */
+    public $exclude_prefix = '_';
 
+    /** @var array List of tags to exclude */
+    public $exclude_selection = [];
 
-	/**
-	 * Add plugin to TinyMCE in ProcessPageEdit
-	 */
-	public function addPlugins(HookEvent $event) {
-		
-		$config = $this->wire()->config;
+    public static function getModuleInfo() {
+        return [
+            'title'    => 'Hanna Code Dialog TinyMCE',
+            'version'  => '0.2.1',
+            'summary'  => 'Enhances the use of Hanna tags in TinyMCE fields with dialog-based editing via iframe.',
+            'author'   => 'Robin Sallis, BitPoet, interrobang',
+            'icon'     => 'clone',
+            'autoload' => 'template=admin',
+            'singular' => true,
+            'requires' => 'ProcessWire>=3.0.218, InputfieldTinyMCE, TextformatterHannaCode, PHP>=7.0',
+            'installs' => 'ProcessHannaCodeDialogTiny',
+        ];
 
-		// Return if loaded via AJAX (image field)
-		if($config->ajax) return;
+    }
 
-		if($this->input->get('InputfieldFileAjax')) return;
-		
-		$pg = $event->object->getPage();
-		$hasTMCE = false;
-		foreach($pg->template->fields as $f) {
-			if($f->type instanceof FieldtypeTextarea && $f->type->getInputfield($pg, $f) instanceof InputfieldTinyMCE) {
-				$hasTMCE = true;
-				break;
-			}
-		}
-		if(! $hasTMCE) return;
-		
-		// Get edited page
-		if($event->wire()->process instanceof ProcessProfile) {
-			$edited_page = $event->wire()->user;
-		} else {
-			$edited_page = $event->object->getPage();
-		}
+    /**
+     * Initialize module and register hooks
+     *
+     * @return void
+     */
+    public function ready() {
+        $this->moduleVersion = $this->getModuleInfo()['version'];
+        $this->moduleUrl = $this->wire()->config->urls->{$this};
+        $this->addHookAfter('ProcessPageEdit::execute', $this, 'addPlugins');
+        $this->addHookBefore('InputfieldForm::render', $this, 'addCheatSheet');
+        $this->addHookAfter('InputfieldTinyMCE::getConfigInputfields', $this, 'addToolbarOption');
 
-		// To config JS
-		$settings = [];
-		$data = $this->wire()->modules->getModuleConfigData('TextformatterHannaCode');
-		$settings['iframe_path'] = "{$this->wire()->input->url}?id={$edited_page->id}&modal=1";
-		$settings['open_tag'] = !empty($data['openTag']) ? $data['openTag'] : \TextformatterHannaCode::DEFAULT_OPEN_TAG;
-		$settings['close_tag'] = !empty($data['closeTag']) ? $data['closeTag'] : \TextformatterHannaCode::DEFAULT_CLOSE_TAG;
-		$settings['hanna_tags'] = $this->getDropdownTags($edited_page);
-		$settings['tags_no_attributes'] = $this->tags_no_attributes;
-		$settings['widget_colour'] = $this->widget_colour ?: '#d3eaf2';
-		$settings['dropdown_title'] = $this->_('Insert Hanna tag');
-		$settings['dialog_title'] = $this->_('Hanna Code Dialog');
-		$settings['dropdown_icon'] = $config->urls->{$this} . "img/hannadropdown.svg";
-		$settings['hover_title'] = $this->_('Doubleclick to edit');
-		
-		$config->js($this->className, $settings);
+        // Auto-add toolbar hooks
+        $this->addHookAfter('Modules::saveConfig', $this, 'hookSaveModuleConfig');
+        $this->addHookBefore('Fields::save', $this, 'hookSaveField');
+    }
 
-		// Add CSS
-		$info = $this->getModuleInfo();
-		$version = $info['version'];
-		$config->styles->add($config->urls->{$this} . "{$this}.css?v={$version}");
-		
-		$event->return = "<script>var hcdt_config = config.HannaCodeDialogTiny;</script>" . $event->return;
-	}
+    /**
+     * Hook: Auto-sync toolbar and plugin when module config is saved
+     *
+     * @param HookEvent $event
+     * @return void
+     */
+    public function hookSaveModuleConfig(HookEvent $event) {
+        if($event->arguments(0) !== $this->className) return;
+        $data = $event->arguments(1);
+        if(empty($data['auto_add_toolbar'])) return;
 
+        $fields = $this->wire()->fields->find('type=FieldtypeTextarea');
+        $pluginPath = $this->wire()->config->urls->{$this->className} . 'tinymce-plugin/HannaCodeDialogTiny.js';
 
+        foreach($fields as $field) {
+            if($this->syncHannaCodeSettings($field, $pluginPath)) {
+                $field->save();
+                $this->message("Auto-updated toolbar and plugin for field: {$field->name}");
+            }
+        }
+    }
 
+    /**
+     * Hook: Auto-sync toolbar and plugin when field is saved
+     *
+     * @param HookEvent $event
+     * @return void
+     */
+    public function hookSaveField(HookEvent $event) {
+        if(!$this->auto_add_toolbar) return;
+        $field = $event->arguments(0);
+        $pluginPath = $this->wire()->config->urls->{$this->className} . 'tinymce-plugin/HannaCodeDialogTiny.js';
+        $this->syncHannaCodeSettings($field, $pluginPath);
+    }
 
-	/**
-	 * Get Hanna Code tags from database
-	 *
-	 * @param bool $name_only
-	 * @param bool $filter_tags
-	 * @return array
-	 */
-	public function getHannaTags($name_only = false, $filter_tags = false) {
-		// Instantiate TextformatterHannaCode
-		$hanna = $this->wire()->modules->get('TextformatterHannaCode');
-		// Fetch Hanna Code tags from database
-		$tags = [];
-		$tags_no_attributes = [];
+    /**
+     * Hook: Add hannacode to toolbar options list in field config
+     *
+     * @param HookEvent $event
+     * @return void
+     */
+    public function addToolbarOption(HookEvent $event) {
+        /** @var InputfieldWrapper $inputfields */
+        $inputfields = $event->return;
+        $f = $inputfields->get('toolbar');
+        if($f && $f instanceof InputfieldTextTags) {
+            $f->addTag('hannacode');
+            $label = $this->_('Insert Hanna Code') . " (" . $this->_('requires "HannaCodeDialogTiny" plugin') . ")";
+            $name = 'hannacode';
 
-		$sql = "SELECT name, code FROM hanna_code ORDER BY name";
-		$query = $this->wire()->database->prepare($sql);
-		$query->execute();
-		while($row = $query->fetch(\PDO::FETCH_NUM)) {
-			list($name, $code) = $row;
-			// If this tag has no attributes then add it to $tags_no_attributes
-			if(strpos($code, 'hc_attr*' . '/') === false) $tags_no_attributes[] = $name;
-			if($name_only) {
-				if($filter_tags) {
-					$exclude_prefix = $this->exclude_prefix ?: '_';
-					if((is_array($this->exclude_selection) && in_array($name, $this->exclude_selection)) || strpos($name, $exclude_prefix) === 0) continue;
-				}
-				$tags[] = $name;
-			} else {
-				if($filter_tags) {
-					$exclude_prefix = $this->exclude_prefix ?: '_';
-					if((is_array($this->exclude_selection) && in_array($name, $this->exclude_selection)) || strpos($name, $exclude_prefix) === 0) continue;
-				}
-				if(version_compare($hanna->getModuleInfo()['version'], 20, '<='))
-					$attrs = $hanna->extractDefaultCodeAttrs($code);
-				else
-					$attrs = $hanna->hannaCodes()->get($name)->attrs();
-				$tags[$name] = $attrs;
-			}
-		}
-		$this->tags_no_attributes = $tags_no_attributes;
-		return $tags;
-	}
+            // Link to the module configuration page
+            $url = $this->wire()->config->urls->admin . "module/edit?name=" . $this->className;
+            $note = "<a class='pw-tooltip' href='$url' target='_blank' rel='nofollow noopener' title='$label'>$name</a>";
 
-	/**
-	 * Get Hanna Code tags for toolbar dropdown
-	 *
-	 * @param Page $page The page being edited
-	 * @return array Array of tag names
-	 *
-	 */
-	public function ___getDropdownTags($page) {
-		return $this->getHannaTags(false, true);
-	}
+            // Insert sorted into the existing 'Toolbar details:' list
+            $prefix = '<span class="detail">' . $this->_('Toolbar details:') . '</span><br />';
+            $prefixPos = strpos($f->notes, $prefix);
 
-	/**
-	 * Build dialog form
-	 *
-	 * @param string $tag_name
-	 * @param Page $edited_page
-	 * @param array $current_attributes
-	 * @param array $default_attributes
-	 * @return InputfieldForm $form
-	 */
-	public function ___buildForm($tag_name, $edited_page, $current_attributes, $default_attributes) {
-		/* @var InputfieldForm $form */
-		$form = $this->modules->get('InputfieldForm');
-		$form->attr('id+name', 'hanna-form');
-		$form->attr('data-name', $tag_name);
-		return $form;
-	}
+            if($prefixPos !== false) {
+                // We assume the list ends with <br /><br /> based on InputfieldTinyMCEConfigs.php source
+                $endPos = strpos($f->notes, '<br /><br />', $prefixPos);
+                if($endPos !== false) {
+                    $startPos = $prefixPos + strlen($prefix);
+                    $existingList = substr($f->notes, $startPos, $endPos - $startPos);
 
-	/**
-	 * Prepare options for use in dialog inputfield
-	 *
-	 * @param string $options_string String of options delimited with a pipe character
-	 * @param string $attribute_name The name of the attribute the options are for
-	 * @param string $tag_name The name of the Hanna tag
-	 * @param object $page The page being edited
-	 * @return array A regular array of option values, or an associative array $value => $label
-	 *
-	 */
-	public function ___prepareOptions($options_string, $attribute_name, $tag_name, $page) {
-		$options = explode('|', $options_string);
-		return $options;
-	}
+                    // Use regex to split safely, avoiding commas inside attributes
+                    $items = preg_split('/, (?=<a)/', $existingList);
+                    if($items === false) $items = array($existingList); // Fallback
 
-	/**
-	 * Find an return an array of all attributes in string $expression
-	 * Lifted from TextformatterHannaCode
-	 *
-	 * @param string $expression
-	 * @return array
-	 *
-	 */
-	protected function getAttributes($expression) {
-		$attrs = [];
-		$regx =
-			'!(?:^|\b)' .		    // beginning or boundary
-			'([-_a-z0-9]+)' .	    // 1. attribute name
-			'\s*=\s*' . 		    // Equals
-			'(' .				    // 2. attribute value, possibly with quotes
-			'(["\']|&quot;)' .	    // 3. open quote
-			'.*?' . 		        // attribute value unquoted
-			'\3' .			        // close quote
-			'|' .				    // OR
-			'[^\'",\s]*' .		    // unquoted value...
-			'),?' . 			    // optional comma, per PW selector style
-			'!i';
-		if(!preg_match_all($regx, $expression, $matches)) {
-			return $attrs;
-		}
-		foreach($matches[1] as $key => $name) {
-			$attrs[$name] = trim($matches[2][$key], "'\"");
-		}
-		if(empty($attrs['name'])) {
-			// allow for optional [[name_here attrs]] expression
-			// where the 'name' isn't specifically called out as an attribute
-			// but is the first symbol in the expression
-			if(preg_match('!^([-_a-z0-9]+)([\s,]|$)!i', $expression, $matches)) {
-				$attrs['name'] = $matches[1];
-			}
-		}
-		return $attrs;
-	}
+                    $items[] = $note;
 
+                    // Sort alphabetically by visible text (strip_tags)
+                    usort($items, function($a, $b) {
+                        return strcasecmp(strip_tags($a), strip_tags($b));
+                    });
 
-	/**
-	 * Config inputfields
-	 *
-	 * @param InputfieldWrapper $inputfields
-	 */
-	public function getModuleConfigInputfields(InputfieldWrapper $inputfields) {
-		$modules = $this->wire()->modules;
-
-		/* @var InputfieldText $f */
-		$f = $modules->InputfieldText;
-		$f_name = 'exclude_prefix';
-		$f->name = $f_name;
-		$f->label = $this->_('Exclude prefix');
-		$f->description = $this->_('Tags that have this prefix will not appear in the toolbar dropdown.');
-		$f->columnWidth = 50;
-		$f->value = $this->$f_name ?: '_';
-		$inputfields->add($f);
-
-		/* @var InputfieldAsmSelect $f */
-		$f = $modules->InputfieldAsmSelect;
-		$f_name = 'exclude_selection';
-		$f->name = $f_name;
-		$f->label = $this->_('Exclude Hanna tags');
-		$f->description = $this->_('Tags that are selected here will not appear in the toolbar dropdown.');
-		$f->columnWidth = 50;
-		foreach($this->getHannaTags(true) as $select_option) {
-			$f->addOption($select_option);
-		}
-		$f->value = $this->$f_name;
-		$inputfields->add($f);
-	}
+                    $newList = implode(', ', $items);
+                    $f->notes = substr_replace($f->notes, $newList, $startPos, $endPos - $startPos);
+                } else {
+                    // Fallback if structure doesn't match expected
+                    $f->notes .= " | " . $note;
+                }
+            } else {
+                $f->notes .= " | " . $note;
+            }
+        }
+    }
 
 
 
-	public function ___install() {
-		$mod = $this->modules->get('InputfieldTinyMCE');
-		$mod->addPlugin('/site/modules/' . $this->className() . '/plugins/hannadialog/hannadialog.js');
-		$mod->addPlugin('/site/modules/' . $this->className() . '/plugins/hannadropdown/hannadropdown.js');
-	}
-	
-	public function ___uninstall() {
-		$mod = $this->modules->get('InputfieldTinyMCE');
-		$mod->removePlugin('/site/modules/' . $this->className() . '/plugins/hannadropdown/hannadropdown.js');
-		$mod->removePlugin('/site/modules/' . $this->className() . '/plugins/hannadialog/hannadialog.js');
-	}
+    /**
+     * Hook: Add plugin configuration to page edit
+     *
+     * @param HookEvent $event
+     * @return void
+     */
+    public function addPlugins(HookEvent $event) {
+        $config = $this->wire()->config;
 
+
+        $pg = $event->object->getPage();
+        if ( ! $this->hasTinyMCE($pg->template->fields, $pg)) {
+            return;
+        }
+
+        $processPage = $this->wire()->pages->get('name=hanna-code-dialog-tiny, parent=setup, template=admin');
+        $dialogUrl = $processPage->id ? $processPage->url : $config->urls->admin.'setup/hanna-code-dialog-tiny/';
+        $dialogUrl .= (strpos($dialogUrl, '?') === false ? '?' : '&').'modal=1';
+
+        $editedPage = $event->wire()->process instanceof ProcessProfile ? $event->wire()->user : $event->object->getPage();
+
+        $settings = [
+            'open_tag'       => $this->wire()->modules->getConfig('TextformatterHannaCode', 'openTag') ?: '[[',
+            'close_tag'      => $this->wire()->modules->getConfig('TextformatterHannaCode', 'closeTag') ?: ']]',
+            'hanna_tags'     => $this->getDropdownTags($editedPage),
+            'dropdown_title' => $this->_('Insert Hanna tag'),
+            'dialog_title'   => $this->_('Hanna Code Dialog'),
+            'dropdown_icon'  => 'sun-o',
+            'hover_title'    => $this->_('Doubleclick to edit'),
+            'dialog_url'     => $dialogUrl,
+            'page_id'        => $editedPage->id,
+            'css_url'        => $this->moduleUrl . 'HannaCodeDialogTiny.css?v=' . $this->moduleVersion,
+        ];
+
+        $config->js($this->className, $settings);
+
+        $event->return = '<script>var hcdt_config = config.HannaCodeDialogTiny;</script>' . $event->return;
+    }
+
+    /**
+     * Get list of Hanna tags for dropdown menu
+     *
+     * @param Page|null $contextPage
+     * @return array
+     */
+    public function ___getDropdownTags($contextPage = null) {
+        $tags = [];
+        $hanna = $this->wire()->modules->get('TextformatterHannaCode');
+
+        if ( ! $hanna) {
+            return $tags;
+        }
+
+        foreach ($hanna->hannaCodes()->getAll() as $hc) {
+            $name = $hc->name;
+            if (strpos($name, $this->exclude_prefix) === 0) {
+                continue;
+            }
+            if (is_array($this->exclude_selection) && in_array($name, $this->exclude_selection)) {
+                continue;
+            }
+
+            $attrs = $hc->attrs;
+            // Check if attrs is not empty (string or array)
+            $hasAttrs = ! empty($attrs);
+            // Fallback for older method: defining attributes inside code with hc_attr
+            if ( ! $hasAttrs && strpos($hc->code, 'hc_attr') !== false) {
+                $hasAttrs = true;
+            }
+            $tags[$name] = ['has_attrs' => $hasAttrs];
+        }
+
+        return $tags;
+    }
+
+    /**
+     * Hook: Add cheatsheet to Hanna Code edit form
+     *
+     * @param HookEvent $event
+     * @return void
+     */
+    public function addCheatSheet(HookEvent $event) {
+        /* @var InputfieldForm $form */
+        $form = $event->object;
+        if ($form->id !== 'HannaCodeEdit') {
+            return;
+        }
+        $hcAttr = $form->getChildByName('hc_attr');
+        if ( ! $hcAttr) {
+            return;
+        }
+
+        $f = $this->wire()->modules->get('InputfieldMarkup');
+        $f->name = 'hcd_info';
+        $f->label = $this->_('Attributes cheatsheet for HannaCodeDialogTiny');
+        $f->value = file_get_contents(__DIR__ . '/cheatsheet.html');
+        $f->icon = 'question-circle';
+        $f->collapsed = Inputfield::collapsedYes;
+        $form->insertAfter($f, $hcAttr);
+    }
+
+    /**
+     * Sync toolbar button and plugin based on TextformatterHannaCode presence
+     *
+     * @param Field $field
+     * @param string $pluginPath
+     * @return bool True if changes were made
+     */
+    protected function syncHannaCodeSettings($field, $pluginPath) {
+        if ($field->inputfieldClass != 'InputfieldTinyMCE') {
+            return false;
+        }
+
+        $formatters = $field->textformatters;
+        if ( ! is_array($formatters)) return false;
+        $hasHanna = in_array('TextformatterHannaCode', $formatters);
+
+        // Sync toolbar
+        $toolbar = (string) $field->toolbar;
+        $hasButton = strpos($toolbar, 'hannacode') !== false;
+        $changed = false;
+
+        if ($hasHanna && ! $hasButton) {
+            $field->toolbar = trim($toolbar.' hannacode');
+            $changed = true;
+        } elseif ( ! $hasHanna && $hasButton) {
+            $toolbar = str_replace('hannacode', '', $toolbar);
+            $toolbar = preg_replace('/\s+/', ' ', $toolbar);
+            $field->toolbar = trim($toolbar);
+            $changed = true;
+        }
+
+        // Sync external plugin
+        $extPlugins = $field->extPlugins;
+        if ( ! is_array($extPlugins)) {
+            $extPlugins = [];
+        }
+        $hasPlugin = in_array($pluginPath, $extPlugins);
+
+        if ($hasHanna && ! $hasPlugin) {
+            $extPlugins[] = $pluginPath;
+            $field->extPlugins = $extPlugins;
+            $changed = true;
+        } elseif ( ! $hasHanna && $hasPlugin) {
+            $extPlugins = array_diff($extPlugins, [$pluginPath]);
+            $field->extPlugins = array_values($extPlugins);
+            $changed = true;
+        }
+
+        return $changed;
+    }
+
+    /**
+     * Recursively check if any of the fields use TinyMCE
+     *
+     * @param  iterable  $fields
+     * @param  Page  $page
+     * @param  array  $visited  Field IDs to prevent infinite recursion
+     *
+     * @return bool
+     */
+    protected function hasTinyMCE($fields, $page, &$visited = []) {
+        foreach ($fields as $field) {
+            if ( ! $field) {
+                continue;
+            }
+
+            // Prevent infinite recursion
+            if (isset($visited[$field->id])) {
+                continue;
+            }
+            $visited[$field->id] = true;
+
+            // Check for TinyMCE in textarea fields
+            if ($field->type instanceof FieldtypeTextarea) {
+                if ($field->type->getInputfield($page, $field) instanceof InputfieldTinyMCE) {
+                    return true;
+                }
+                continue;
+            }
+
+            // Check for TinyMCE in repeater fields
+            if ($field->type instanceof FieldtypeRepeater) {
+                if ( ! $field->repeaterFields || ! is_array($field->repeaterFields)) {
+                    continue;
+                }
+
+                $subFields = [];
+                foreach ($field->repeaterFields as $fieldId) {
+                    $subField = $this->wire()->fields->get($fieldId);
+                    if ($subField) {
+                        $subFields[] = $subField;
+                    }
+                }
+
+                if ($this->hasTinyMCE($subFields, $page, $visited)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Module install
+     *
+     * @return void
+     */
+    public function ___install() {
+        $mod = $this->modules->get('InputfieldTinyMCE');
+        $url = $this->wire()->config->urls->{$this->className};
+        $mod->addPlugin($url.'tinymce-plugin/HannaCodeDialogTiny.js');
+    }
+
+    /**
+     * Module uninstall
+     *
+     * @return void
+     */
+    public function ___uninstall() {
+        $mod = $this->modules->get('InputfieldTinyMCE');
+        $url = $this->wire()->config->urls->{$this->className};
+        $mod->removePlugin($url.'tinymce-plugin/HannaCodeDialogTiny.js');
+    }
+
+    /**
+     * Module upgrade
+     *
+     * @param string $fromVersion
+     * @param string $toVersion
+     * @return void
+     */
+    public function ___upgrade($fromVersion, $toVersion) {
+        $mod = $this->modules->get('InputfieldTinyMCE');
+        $url = $this->wire()->config->urls->{$this->className};
+
+        // Upgrade from versions prior to 0.2.2
+        if(version_compare($fromVersion, '0.2.2', '<')) {
+            // Remove old plugin registrations
+            $mod->removePlugin($url.'plugins/hannadialog/hannadialog.js');
+            $mod->removePlugin($url.'plugins/hannadropdown/hannadropdown.js');
+            $mod->removePlugin($url.'plugins/HannaCodeDialogTiny/HannaCodeDialogTiny.js');
+
+            // Add new plugin path
+            $mod->addPlugin($url.'tinymce-plugin/HannaCodeDialogTiny.js');
+
+            // Migrate toolbar settings: hannadropdown -> hannacode
+            $fields = $this->wire()->fields->find('type=FieldtypeTextarea');
+            $count = 0;
+            foreach($fields as $field) {
+                if($field->inputfieldClass != 'InputfieldTinyMCE') continue;
+
+                $toolbar = $field->toolbar;
+                if(strpos($toolbar, 'hannadropdown') !== false) {
+                    $toolbar = str_replace('hannadropdown', 'hannacode', $toolbar);
+                    $field->set('toolbar', $toolbar);
+                    $field->save();
+                    $count++;
+                }
+            }
+
+            if($count > 0) {
+                $this->message("Upgraded HannaCodeDialogTiny: Plugin paths updated and migrated $count field(s) from 'hannadropdown' to 'hannacode'.");
+            } else {
+                $this->message("Upgraded HannaCodeDialogTiny: Plugin paths updated.");
+            }
+        }
+    }
 
 }
